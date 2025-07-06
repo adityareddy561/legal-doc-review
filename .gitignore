@@ -10,3 +10,5 @@ venv/
 
 # DB files if you use SQLite (not for Postgres)
 *.db
+
+*.pdf

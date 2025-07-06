@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Legal Document RAG</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <h1>Legal Document Review</h1>
+
+  <!-- Upload PDF -->
+  <h2>Upload PDF</h2>
+  <form id="uploadForm">
+    <input type="file" name="file" accept=".pdf" required />
+    <button type="submit">Upload</button>
+  </form>
+
+  <!-- Show generated summary -->
+  <div id="summary"></div>
+
+  <!-- Ask question -->
+  <h2>Ask a Question</h2>
+  <form id="askForm">
+    <input type="text" name="query" id="query" placeholder="E.g. What is the NDA term?" required />
+    <button type="submit">Ask</button>
+  </form>
+
+  <!-- Show answer -->
+  <div id="answer"></div>
+
+  <script>
+    const uploadForm = document.getElementById('uploadForm');
+    const askForm = document.getElementById('askForm');
+    const summaryDiv = document.getElementById('summary');
+    const answerDiv = document.getElementById('answer');
+
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(uploadForm);
+
+      const response = await fetch('/upload', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
+      console.log(data);
+
+      summaryDiv.innerHTML = `
+        <h3>Document ID: ${data.document_id}</h3>
+        <strong>Summary:</strong><br/>
+        <p>${data.summary}</p>
+      `;
+
+      answerDiv.innerHTML = ''; // clear old answer
+    });
+
+    askForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(askForm);
+
+      const response = await fetch('/query', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await response.json();
+      console.log(data);
+
+      answerDiv.innerHTML = `
+        <h3>Answer:</h3>
+        <p>${data.response}</p>
+      `;
+    });
+  </script>
+</body>
+</html>
+<!-- End of file: templates/index.html -->
+<!-- This HTML file provides a simple interface for uploading legal documents and querying them. -->
