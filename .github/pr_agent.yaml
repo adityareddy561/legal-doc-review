@@ -1,0 +1,15 @@
+pr_agent:
+  description: >
+    PR Agent automatically reviews pull requests, generates commit messages,
+    and suggests changelog entries.
+  model:
+    provider: openai
+    model: gpt-4o
+  commands:
+    enabled: true
+  auto_review:
+    enabled: true
+  auto_summarize:
+    enabled: true
+  auto_comment:
+    enabled: true
