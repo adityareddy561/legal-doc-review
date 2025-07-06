@@ -1,5 +1,4 @@
-import os
-import uuid
+import os, tempfile, uuid
 
 from fastapi import FastAPI, HTTPException, UploadFile, Form, Request
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -27,7 +26,7 @@ if not OPENAI_API_KEY:
 
 embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
-llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0.2)
+llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
 
 
 vector_store = PGVector(
@@ -53,64 +52,69 @@ async def home_page(request: Request):
 async def upload_file(request: Request, file: UploadFile):
     document_id = str(uuid.uuid4())
     user_id = "demo_user"
+
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
     
     request.session['document_id'] = document_id
     request.session['user_id'] = user_id
 
-    file_location = f"uploaded_{file.filename}"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        tmp_file.write(await file.read())
+        file_location = tmp_file.name
 
-    with open(file_location, "wb") as f:
-        f.write(await file.read())
-    
-    blob = Blob.from_path(file_location)
-    parser = PyPDFParser()
-    docs = list(parser.lazy_parse(blob))
+    try:
+        blob = Blob.from_path(file_location)
+        parser = PyPDFParser()
+        docs = list(parser.lazy_parse(blob))
 
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=150, chunk_overlap=30)
+        text_splitter = RecursiveCharacterTextSplitter(chunk_size=150, chunk_overlap=30)
+        chunks = text_splitter.split_documents(docs)
 
-    chunks = text_splitter.split_documents(docs)
+        chunk_docs = []
+        for chunk in chunks:
+            chunk_docs.append(
+                chunk.model_copy(update={"metadata": {
+                    "document_id": document_id,
+                    "user_id": user_id
+                }})
+            )
+        vector_store.add_documents(chunk_docs)
 
-    chunk_docs = []
-    for chunk in chunks:
-        chunk_docs.append(
-            chunk.model_copy(update={"metadata": {
-                "document_id": document_id,
-                "user_id": user_id}})
+        summary_chunks = vector_store.similarity_search(
+            "Summarize the detailed overview of the document.",
+            k=50,
+            filter={"user_id": user_id, "document_id": document_id}
         )
-    vector_store.add_documents(chunk_docs)
 
-    summary_chunks = vector_store.similarity_search(
-        "Summarize the deatiled overview of the document.",
-        k=50,
-        filter={"user_id": user_id, "document_id": document_id}
-    )
+        if not summary_chunks:
+            raise HTTPException(status_code=404, detail="No relevant chunks found for summary.")
 
-    if not summary_chunks:
-        raise HTTPException(status_code=404, detail="No relevant chunks found for summary.")
+        summary_context = " ".join([doc.page_content for doc in summary_chunks])
+        summary_template = PromptTemplate.from_template("""
+            You are a helpful legal expert.
+            Summarize the following legal document in a detailed overview.
+            Your summary should be comprehensive and cover all key aspects.
+            Do not include any personal opinions or interpretations.
+            Use ONLY the following context. If you don't find enough info, say: "I don't know."
 
-    summary_context = " ".join([doc.page_content for doc in summary_chunks])
-    summary_template = PromptTemplate.from_template("""
-        You are a helpful legal expert.
-        Summarize the following legal document in a detailed overview.
-        Your summary should be comprehensive and cover all key aspects.
-        Do not include any personal opinions or interpretations.
-        Use ONLY the following context. If you don't find enough info, say: "I don't know."
-
-        Context:
-        {context}
+            Context:
+            {context}
         """)
-    summary_prompt = summary_template.format(context=summary_context)
-    summary_response = llm.invoke(summary_prompt)
-    if not summary_response:
-        raise HTTPException(status_code=500, detail="Failed to generate summary.")
+        summary_prompt = summary_template.format(context=summary_context)
+        summary_response = llm.invoke(summary_prompt)
 
-    return JSONResponse(content={
-        "message": "File uploaded and processed successfully.",
-        "document_id": document_id,
-        "summary": summary_response.content
-    })
+        if not summary_response:
+            raise HTTPException(status_code=500, detail="Failed to generate summary.")
+
+        return JSONResponse(content={
+            "message": "File uploaded and processed successfully.",
+            "document_id": document_id,
+            "summary": summary_response.content
+        })
+
+    finally:
+        os.remove(file_location)
 
 @app.post("/query")
 async def query(request: Request, query: str = Form(...)):
