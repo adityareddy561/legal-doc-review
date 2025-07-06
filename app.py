@@ -41,7 +41,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 app.add_middleware(SessionMiddleware, secret_key="RANDOM_SECRET_KEY")
-
+app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", os.urandom(32).hex()))
 templates = Jinja2Templates(directory="templates")
 
 @app.get("/",response_class=HTMLResponse)
